@@ -33,16 +33,36 @@ class CircuitSAT(nn.Module):
         self.forward_update = nn.GRU(dim, dim)
         self.backward_update = nn.GRU(dim, dim)
 
-        self.classif = MLP(dim, dim_class, 1)
+        self.classif = MLP(dim, dim_class, 1) # Classification network C_a
+        
+        # F_o(u_G) = C_a(P(E_b(u_G)))
+        # u_G -> DAG function, in this case, we encode the type as one-hot d-dimensional encoding {And, Or, Not, Variable}
+        # C_a -> Classification network from q dimensions to [0, 1] range (soft classification)
+        # E_b -> Embedding function that maps from d-dimensional function to q-dimensional function.
+        # P -> Non-parametric Pooling function that aggregates the q-dim functions depends on the application
+
+        # x_v = u_G(v) node feature vector
+        # h_v = d_G(v) node state vector
+        # h_v = GRU(x_v, h'_v)
+        # h'_v = A({h_u | u \in \pi(v)}) 
+        # A -> aggregator function (deep set function)
+
+        # S(u_G) = R(F_o(u_G))
+        # F_o -> Policy network
+        # R -> Evaluator network (kind of reward)
+        # L = (1-S(u_G))**k/(((1-S(u_G))**k) + S(u_G)**k)
+        # Minimizing L loss, we push S(u_G) -> 1 (i.e., sat result, and thus a valid assignment) 
 
     def forward(self, sample):
+
+        # Allocate tensors contiguous in GPU
         self.forward_update.flatten_parameters()
         self.backward_update.flatten_parameters()
         adj = sample['adj']
         h_state = self.init(sample['features'].cuda()).unsqueeze(0)
 
         for _ in range(self.n_rounds):
-            f_pre_msg = self.forward_msg(h_state.squeeze(0))
+            f_pre_msg = self.forward_msg(h_state.squeeze(0)) # Pass through the GRU
             f_msg = torch_sparse.matmul(adj, f_pre_msg)
 
             _, h_state = self.forward_update(f_msg.unsqueeze(0), h_state)
@@ -55,6 +75,7 @@ class CircuitSAT(nn.Module):
         return self.classif(h_state.squeeze(0))
 
     def collate_fn(self, problems):
+        # Prepare a batch of samples
         is_sat, solution, n_vars, clauses = [], [], [], []
         single_adjs, inds, fnames, fs = [], [], [], []
         n_clauses = []
@@ -109,6 +130,7 @@ class CircuitSAT(nn.Module):
         all_inds = torch.cat(batch['indicator'], dim=1).squeeze()
         literals = all_inds == 0
         ors = all_inds == 1
+        # We are only interested in the region of the adjacency matrix between literals and clauses
         repr = batch['adj'][literals, ors].to_dense()
         return repr.cuda()
 
@@ -187,7 +209,7 @@ def sparse_elem_mul(s1, s2):
 
 
 def custom_csat_loss(outputs, k=10, mean=True):
-    # smooth step function
+    # L loss -> smooth step function
     loss = (1 - outputs)**k / (((1 - outputs)**k) + outputs**k)
     if mean:
         return loss.mean()
