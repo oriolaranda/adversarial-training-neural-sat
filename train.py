@@ -7,28 +7,28 @@ import pickle
 from datetime import datetime
 from sklearn.metrics import accuracy_score
 from tqdm import tqdm
+from itertools import chain, repeat
 
 
 def get_random_solution(n_vars):
     solution = np.random.choice([-1, 1], size=n_vars, replace=True)
     return solution*np.arange(1, n_vars+1)
 
-def get_random_clause(solution, literals, n_vars, vars_per_clause, p_k_2=0, p_geo=0):
+def get_random_clause(solution, literals, n_vars, p_k_2=0, p_geo=0):
     k_base = 1 if np.random.random() < p_k_2 else 2
     vars_per_clause = min(n_vars, k_base + np.random.geometric(p_geo))
     true_literal = np.random.choice(solution)
     other_literals = np.random.choice(literals, size=vars_per_clause-1)
     clause = np.concatenate([[true_literal], other_literals])
-    assert len(clause) == vars_per_clause
     return clause
 
 def generate_problem(n_vars):
     literals = [x for x in range(-n_vars, n_vars+1) if x != 0]
     solution = get_random_solution(n_vars)
-    vars_per_clause = min(n_vars, 4)
+
     clauses = []
     for _ in range(args.n_clauses):
-        clause = get_random_clause(solution, literals, n_vars, vars_per_clause, args.p_k_2, args.p_geo)
+        clause = get_random_clause(solution, literals, n_vars, args.p_k_2, args.p_geo)
         clauses.append(clause)
 
     c_adj, c_ind = cnf_to_csat(clauses, n_vars)
@@ -40,7 +40,6 @@ def generate_problem(n_vars):
         'solution': solution,
         'c_adj': torch_sparse.SparseTensor.from_dense(c_adj),
         'csat_ind': c_ind
-
     }
     return csat_problem
 
@@ -59,12 +58,11 @@ def send_to(batch, device):
     batch['features'] = batch['features'].to(device)
     return batch
 
-def evaluate(model, n_vars=5, batch_size=32, device="cuda"):
+def evaluate(model, n_problems, n_vars=5, batch_size=32, device="cuda"):
     ts, ps, outs = torch.Tensor([]), torch.Tensor([]), torch.Tensor([])
-    eval_batches = 20
     model.eval()
     val_loss = []
-    for i in range(eval_batches):
+    for i in range(int(n_problems*0.2*0.5)//(batch_size)):
         with torch.no_grad():
             # For memory allocation efficiency
             model.forward_update.flatten_parameters()
@@ -77,17 +75,19 @@ def evaluate(model, n_vars=5, batch_size=32, device="cuda"):
             outputs = evaluate_circuit(batch_eval, torch.sigmoid(assig), 1, hard=True)
             val_loss.append(custom_csat_loss(outputs).item())
 
-    ts = torch.cat((ts, batch_eval['is_sat']))
-    outs = torch.cat((outs, outputs.flatten().detach().cpu()))
-    preds = torch.where(outputs > 0.5, torch.ones(outputs.shape).cuda(), torch.zeros(outputs.shape).cuda())
-    ps = torch.cat((ps, preds.flatten().cpu()))
+        ts = torch.cat((ts, batch_eval['is_sat']))
+        outs = torch.cat((outs, outputs.flatten().detach().cpu()))
+        preds = torch.where(outputs > 0.5, torch.ones(outputs.shape).cuda(), torch.zeros(outputs.shape).cuda())
+        ps = torch.cat((ps, preds.flatten().cpu()))
+
+        val_acc = accuracy_score(ts.numpy(), ps.numpy()).item()
+        print(val_acc)
     val_loss = np.mean(val_loss).item()
-    val_acc = accuracy_score(ts.numpy(), ps.numpy())
-    return val_loss, val_acc.item()
+    return val_loss, val_acc
 
 
 
-def train(model, n_batches, n_vars=5, epochs=5, batch_size=32, lr=0.00002, weight_decay=1e-10, grad_clip=0.65,
+def train(model, n_problems, n_vars_interval, epochs=5, batch_size=32, lr=0.00002, weight_decay=1e-10, grad_clip=0.65,
           model_path="./trained_models/", device="cuda"):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -96,17 +96,18 @@ def train(model, n_batches, n_vars=5, epochs=5, batch_size=32, lr=0.00002, weigh
     simulation_name =f"{model.name}_{dataset_name}_{datetime.now().strftime('%d:%m-%H:%M:%S.%f')}"
     print("Experiment identifier: ", simulation_name)
 
-    # n_vars = 5 fixed for the moment
     best_val_acc = 0.0
     val_accs = []
+
+    min_n_vars, max_n_vars = n_vars_interval
+    repeat_n_vars = n_problems// ((max_n_vars - min_n_vars +1)*batch_size)
+    list_n_vars = list(chain.from_iterable(repeat(n_vars, repeat_n_vars) for n_vars in range(min_n_vars, max_n_vars+1)))
     
-    for e in range(1, epochs+1):
-        
+    for e in range(0, epochs):
         train_loss = []
         model.train()
 
-        for i in tqdm(range(n_batches)):
-            
+        for i, n_vars in enumerate(list_n_vars):
             batch = generate_batch(model, n_vars, batch_size)
             batch = send_to(batch, device)
             
@@ -116,7 +117,7 @@ def train(model, n_batches, n_vars=5, epochs=5, batch_size=32, lr=0.00002, weigh
             model.backward_update.flatten_parameters()
 
             assig = model(batch)
-            pred = evaluate_circuit(batch, torch.sigmoid(assig), e)
+            pred = evaluate_circuit(batch, torch.sigmoid(assig), e+1)
             loss = custom_csat_loss(pred)
             train_loss.append(loss.item())
 
@@ -124,11 +125,12 @@ def train(model, n_batches, n_vars=5, epochs=5, batch_size=32, lr=0.00002, weigh
             nn.utils.clip_grad_norm_(model.parameters(), grad_clip, norm_type=2.0)
             optimizer.step()
 
-            if i % 100 == 0:
-                print(f"[{e}] Training Loss:", np.mean(train_loss).item())
-                train_loss = []
+            # if i % 100 == 0:
+            #    print(f"[{e}] Training Loss:", np.mean(train_loss).item())
+            #    train_loss = []
 
-        val_loss, val_acc = evaluate(model, n_vars, batch_size)
+        print(f"[{e}] Training Loss:", np.mean(train_loss).item())
+        val_loss, val_acc = evaluate(model, n_problems, n_vars, batch_size)
         print(f"[{e}] Validation Loss:", val_loss, "| Validation Accuracy:", val_acc)
         val_accs.append(val_acc)
 
@@ -150,13 +152,17 @@ def main(args):
     # for n_vars in range(args.min_n_vars, args.max_n_vars):
     model = CircuitSAT()
     model.cuda()
-    train(model, args.n_batches)
+
+    n_vars_interval = (args.min_n_vars, args.max_n_vars)
+    results = train(model, args.n_problems, n_vars_interval)
+    save_results(results)
+    plot_results(results)
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Adversarial Training script')
-    parser.add_argument('-n_batches', default=300, type=int)
+    parser.add_argument('-n_problems', default=10000, type=int)
     parser.add_argument('-n_clauses', default=4, type=int)
     parser.add_argument('-min_n_vars', default=3, help='start value for number of variables', type=int)
     parser.add_argument('-max_n_vars', default=10, help='end value for number of variables', type=int)
