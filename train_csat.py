@@ -3,15 +3,15 @@ import argparse
 import torch.nn as nn
 import numpy as np
 from datetime import datetime
-from sat.data import SATDataset, get_SAT_training_data
-from sat.solvers.circuitsat import *
+from data import SATDataset, get_SAT_training_data
+from circuitsat import *
 from sat.attacks import attack_opt, attack_random
 from torch.utils.data.dataloader import DataLoader
 from sklearn.metrics import accuracy_score
 
 
 def train_csat(model, train, val, dataset_name, epochs=60, batch_size=32, lr=0.00002, device="cuda",
-               weight_decay=1e-10, grad_clip=0.65, model_path="/trained_models/"):
+               weight_decay=1e-10, grad_clip=0.65, model_path="./trained_models/"):
     """
     Executes training and validation on the NeuroSAT model
     """
