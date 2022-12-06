@@ -143,6 +143,12 @@ def train(model, n_problems, n_vars_interval, epochs=5, batch_size=32, lr=0.0000
     return results
 
 
+def save_results(results):
+    pass
+
+def plot_results(results):
+    pass
+    
 
 def main(args):
     random.seed(args.seed)
