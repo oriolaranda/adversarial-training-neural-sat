@@ -66,7 +66,7 @@ def make_csat_batch(iclauses, n_vars):
     out_dict['label'], out_dict['solution'] = solve_sat(n_vars, iclauses)  # Inefficient: recompute solution
     assert out_dict['label']
     
-    # construct adjacency for nsat model
+    # construct adjacency for csat model
     out_dict['c_adj'], out_dict['csat_ind'] = cnf_to_csat(iclauses, n_vars)
     out_dict['c_adj'] = torch_sparse.SparseTensor.from_dense(out_dict['c_adj'])
     return out_dict

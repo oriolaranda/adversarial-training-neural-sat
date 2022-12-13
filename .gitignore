@@ -76,3 +76,6 @@ venv.bak/
 
 # dataset
 SAT-3-10/
+
+# models
+trained_models/
