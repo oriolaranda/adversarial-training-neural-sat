@@ -74,8 +74,12 @@ ENV/
 env.bak/
 venv.bak/
 
-# dataset
+# project directories
 SAT-3-10/
-
-# models
 trained_models/
+outputs/
+results/
+
+# cluster scripts
+seml*.py
+seml*.yaml

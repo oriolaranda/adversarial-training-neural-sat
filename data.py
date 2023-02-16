@@ -84,4 +84,3 @@ class SATDataset(Dataset):
         item = pickle.load(open(self.path / name, "rb"))
         item['filename'] = self.data_names[idx]
         return item
-

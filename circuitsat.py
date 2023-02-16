@@ -3,7 +3,7 @@ import copy
 import torch_sparse
 import torch.nn as nn
 from torch_sparse import SparseTensor
-from sat.utils import sparse_blockdiag
+from utils import sparse_blockdiag
 import numpy as np
 
 
@@ -74,21 +74,23 @@ class CircuitSAT(nn.Module):
             
         return self.classif(h_state.squeeze(0))
 
-    def collate_fn(self, problems):
+    @staticmethod
+    def collate_fn(problems):
         # Prepare a batch of samples
         is_sat, solution, n_vars, clauses = [], [], [], []
-        single_adjs, inds, fnames, fs = [], [], [], []
+        single_adjs, inds, masks, fnames, fs = [], [], [], [], []
         n_clauses = []
         var_labels = []
         for p in problems:
-            adj = p['c_adj']
-            single_adjs.append(adj)        
+            adj = p['adj']
+            single_adjs.append(adj)
+            masks.append(p['mask'])
             n_vars.append(p['n_vars'])
             clauses.append(p['clauses'])
             n_clauses.append(len(p['clauses']))
             is_sat.append(float(p['label']))
-            inds.append(p['csat_ind'])
-            f = copy.deepcopy(p['csat_ind'][0])
+            inds.append(p['ind'])
+            f = copy.deepcopy(p['ind'][0])
             f[f == 1] = 2
             f[f == -1] = 3
             f[p['n_vars']:p['n_vars']*2] = 1
@@ -98,12 +100,12 @@ class CircuitSAT(nn.Module):
                 c = np.array(p['solution'])
                 c = c[c > 0] - 1
                 l = torch.zeros(p['n_vars'])
-                l[c] = 1 
+                l[c] = 1
                 var_labels.append(l)
             else:
                 var_labels.append(torch.Tensor([-1]))
             solution.append(p['solution'])
-        
+
         adj = sparse_blockdiag(single_adjs)
         indicators = torch.cat(fs).squeeze(0)
         assert indicators.size(0) == adj.size(0) == adj.size(1)
@@ -116,7 +118,8 @@ class CircuitSAT(nn.Module):
             'n_vars': torch.Tensor(n_vars).int(),
             'is_sat': torch.Tensor(is_sat).float(),
             'adj': adj,
-            'indicator': inds,
+            'ind': inds,
+            'mask': masks,
             'clauses': clauses,
             'solution': solution,
             'fnames': fnames,
@@ -126,17 +129,19 @@ class CircuitSAT(nn.Module):
         }
         return sample
 
-    def get_representation(self, batch):
-        all_inds = torch.cat(batch['indicator'], dim=1).squeeze()
+    @staticmethod
+    def get_representation(batch):
+        all_inds = torch.cat(batch['ind'], dim=1).squeeze()
         literals = all_inds == 0
         ors = all_inds == 1
         # We are only interested in the region of the adjacency matrix between literals and clauses
         repr = batch['adj'][literals, ors].to_dense()
         return repr.cuda()
 
-    def reconstruct(self, repr, batch):
+    @staticmethod
+    def reconstruct(repr, batch):
         adj = batch['adj'].to_dense().to(repr.device)
-        all_inds = torch.cat(batch['indicator'], dim=1).squeeze()
+        all_inds = torch.cat(batch['ind'], dim=1).squeeze()
         literals = all_inds == 0
         ors = all_inds == 1
         temp = adj[literals]
@@ -149,9 +154,9 @@ class CircuitSAT(nn.Module):
 def evaluate_circuit(sample, emb, epoch, eps=1.2, hard=False):
     # explore exploit with annealing rate
     t = epoch ** (-eps)
-    inds = torch.cat(sample['indicator'], dim=1).view(-1)
+    inds = torch.cat(sample['ind'], dim=1).view(-1)
 
-    # set to negative to make sure we dont accidentally use nn preds for or/and
+    # set to negative to make sure we don't accidentally use nn preds for or/and
     temporary = emb.clone()
     temporary[inds == 1] = -1
     temporary[inds == -1] = -1
@@ -211,8 +216,5 @@ def sparse_elem_mul(s1, s2):
 def custom_csat_loss(outputs, k=10, mean=True):
     # L loss -> smooth step function
     loss = (1 - outputs)**k / (((1 - outputs)**k) + outputs**k)
-    if mean:
-        return loss.mean()
-    else:
-        return loss
+    return loss.mean() if mean else loss
 

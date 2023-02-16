@@ -4,14 +4,13 @@ from circuitsat import *
 from torch.utils.data.dataloader import DataLoader
 from sklearn.metrics import accuracy_score
 
-def main():
+def test_model(model_path):
     batch_size = 32
     train, val, test, name = get_SAT_training_data("SAT-3-10")
     model = CircuitSAT()
     model.cuda()
 
     # model_path = "./trained_models/CSAT_SAT-Constructive_06:12-15:35:11.011767_MAX.pt"
-    model_path = "./trained_models/CSAT_SAT-3-10_06:12-15:06:24.741026_MAX.pt"
 
     model.load_state_dict(torch.load(model_path))
     model.eval()
@@ -41,8 +40,11 @@ def main():
     val_loss = np.mean(val_loss)
     print("Test Loss:", val_loss)
     print("Test Accuracy:", val_acc)
-    
 
+
+def main():
+    model_path = "./trained_models/CSAT_SAT-3-10_06:12-15:06:24.741026_MAX.pt"
+    test_model(model_path)
 
 if __name__ == '__main__':
     main()
