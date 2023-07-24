@@ -5,7 +5,7 @@ import numpy as np
 from datetime import datetime
 from data import SATDataset, get_SAT_training_data
 from circuitsat import *
-from sat.attacks import attack_opt, attack_random
+# from sat.attacks import attack_opt, attack_random
 from torch.utils.data.dataloader import DataLoader
 from sklearn.metrics import accuracy_score
 
@@ -16,7 +16,7 @@ def train_csat(model, train, val, dataset_name, epochs=60, batch_size=32, lr=0.0
     Executes training and validation on the NeuroSAT model
     """
     if isinstance(train, SATDataset) and isinstance(val, SATDataset):
-        dl_train = DataLoader(dataset=train, collate_fn=model.collate_fn, pin_memory=True,
+        dl_train = DataLoader(dataset=train, collate_fn=CircuitSAT.collate_fn, pin_memory=True,
                               shuffle=True, batch_size=batch_size, num_workers=1)
     else:
         raise ValueError('Data is not provided as SAT Dataset.')
@@ -72,7 +72,7 @@ def eval_csat(model, val, batch_size=32, perturb="clean", **attackargs):
     Evaluates model on validation data
     """  
     if isinstance(val, SATDataset):
-        dl_val = DataLoader(dataset=val, collate_fn=model.collate_fn, pin_memory=False,
+        dl_val = DataLoader(dataset=val, collate_fn=CircuitSAT.collate_fn, pin_memory=False,
                             shuffle=False, batch_size=batch_size, num_workers=0)
     else:
         raise ValueError('Data is not provided as SAT Dataset.')
@@ -86,11 +86,11 @@ def eval_csat(model, val, batch_size=32, perturb="clean", **attackargs):
 
         elif perturb == "random-sat":
             assert torch.all(batch['is_sat'].bool())
-            sample_new = attack_random("sat", model, batch, **attackargs)
+            # sample_new = attack_random("sat", model, batch, **attackargs)
 
         elif perturb == "optimized-sat":
             assert torch.all(batch['is_sat'].bool())
-            sample_new = attack_opt("sat", model, batch, **attackargs) 
+            # sample_new = attack_opt("sat", model, batch, **attackargs)
 
         else:
             raise ValueError("this kind of perturbation has not been implemented")

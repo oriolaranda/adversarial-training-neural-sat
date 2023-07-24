@@ -84,6 +84,10 @@ def cnf_to_csat(cnf, nv):
 
     # Make indicator for each node (literal) of the graph
     indicator = torch.zeros(1, 2*nv)
+
+    # Make mask for adversarial training shape = (nv, nc)
+    mask = torch.zeros(nv*2, len(t_cnf))
+
     # For each clause add a new node
     for i, c in enumerate(t_cnf):
         # Add row and column to adjacency matrix
@@ -94,8 +98,12 @@ def cnf_to_csat(cnf, nv):
         # Add a new position with 1 for the new added node
         indicator = torch.nn.functional.pad(indicator, (0, 1), value=1)
 
-        # Save the index node (is the last element, so it is the size)
+        # Save the index of the clause node (is the last element), for connecting with the root node later
         t_cnf[i] = adj.size(0)
+
+        # Add the true literal (first) of the clause to the mask
+        l1, *_ = c
+        mask[l1-1, i] = 1
 
     # Add a final node (root)
     adj = torch.nn.functional.pad(adj, (0, 1, 0, 1))
@@ -103,8 +111,8 @@ def cnf_to_csat(cnf, nv):
     # Add a new postion for the root with value -1
     indicator = torch.nn.functional.pad(indicator, (0, 1), value=-1)
 
-    # For each clause index add a direct edge to the last node
+    # For each clause index add a direct edge to the last (root) node
     for l in t_cnf:
         adj[l-1, -1] = 1
-    return adj, indicator
+    return adj, indicator, mask
     

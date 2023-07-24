@@ -1,5 +1,8 @@
 */dev/
 
+# PyCharm
+.idea/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 */__pycache__/
@@ -71,11 +74,18 @@ ENV/
 env.bak/
 venv.bak/
 
-# dataset
+# project directories
 SAT-3-10/
-
-# models
 trained_models/
+<<<<<<< HEAD
 
 # results
 results/
+=======
+outputs/
+results/
+
+# cluster scripts
+seml*.py
+seml*.yaml
+>>>>>>> 6c7c49b7c0d26b5dcf34f7a9aa0e698c646d5396
