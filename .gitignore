@@ -76,3 +76,6 @@ SAT-3-10/
 
 # models
 trained_models/
+
+# results
+results/

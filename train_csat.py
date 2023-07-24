@@ -35,6 +35,7 @@ def train_csat(model, train, val, dataset_name, epochs=60, batch_size=32, lr=0.0
         model.train()
 
         for _, batch in enumerate(dl_train):
+            print(type(batch['adj']))
             batch['adj'] = batch['adj'].to(device)
             batch['is_sat'] = batch['is_sat'].to(device)
             optim.zero_grad()
